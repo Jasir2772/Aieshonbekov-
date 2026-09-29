@@ -1,5 +1,5 @@
 import os
-import httpx
+from groq import Groq
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -12,9 +12,11 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-MODEL = "Qwen/Qwen2.5-7B-Instruct"
+MODEL = "llama-3.3-70b-versatile"
+
+client = Groq(api_key=GROQ_API_KEY)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -25,21 +27,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_ai(user_text: str) -> str:
-    url = "https://router.huggingface.co/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "model": MODEL,
-        "messages": [
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
             {
                 "role": "system",
                 "content": (
                     "You are Aieshonbekov AI, a helpful Telegram AI assistant. "
-                    "Answer naturally and clearly. "
+                    "Answer clearly and naturally. "
                     "If the user writes Uzbek, answer in Uzbek."
                 ),
             },
@@ -48,22 +43,11 @@ async def ask_ai(user_text: str) -> str:
                 "content": user_text,
             },
         ],
-        "max_tokens": 1000,
-        "temperature": 0.7,
-    }
+        temperature=0.7,
+        max_tokens=1000,
+    )
 
-    async with httpx.AsyncClient(timeout=90) as client:
-        response = await client.post(
-            url,
-            headers=headers,
-            json=payload,
-        )
-
-    response.raise_for_status()
-
-    data = response.json()
-
-    return data["choices"][0]["message"]["content"]
+    return response.choices[0].message.content
 
 
 async def message_handler(
@@ -73,45 +57,35 @@ async def message_handler(
     if not update.message or not update.message.text:
         return
 
-    user_text = update.message.text.strip()
+    text = update.message.text.strip()
 
     await update.message.chat.send_action(
         action=ChatAction.TYPING
     )
 
     try:
-        answer = await ask_ai(user_text)
-
-        await update.message.reply_text(
-            answer,
-            disable_web_page_preview=True,
-        )
+        answer = await ask_ai(text)
+        await update.message.reply_text(answer)
 
     except Exception as error:
-        print("AI ERROR:", error)
+        print("ERROR:", error)
 
         await update.message.reply_text(
-            "❌ Afsus, hozir AI javob bera olmadi.\n"
+            "❌ Hozir AI javob bera olmadi. "
             "Birozdan keyin yana urinib ko‘ring."
         )
 
 
 def main():
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN mavjud emas!")
+        raise RuntimeError("BOT_TOKEN topilmadi!")
 
-    if not HF_TOKEN:
-        raise RuntimeError("HF_TOKEN mavjud emas!")
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY topilmadi!")
 
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .build()
-    )
+    app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(
-        CommandHandler("start", start)
-    )
+    app.add_handler(CommandHandler("start", start))
 
     app.add_handler(
         MessageHandler(
